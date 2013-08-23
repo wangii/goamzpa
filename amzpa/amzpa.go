@@ -18,30 +18,43 @@ import (
 	"encoding/base64"
 	"crypto/hmac"
 	"crypto/sha256"
+    "bytes"
+    "log"
 )
 
+var b64 = base64.StdEncoding
 var service_domains = map[string] string {
      "CA": "ecs.amazonaws.ca",
-     "CN": "webservices.amazon.cn",
+     "CN": "ecs.amazon.cn",
      "DE": "ecs.amazonaws.de",
-     "ES": "webservices.amazon.es",
+     "ES": "ecs.amazon.es",
      "FR": "ecs.amazonaws.fr",
-     "IT": "webservices.amazon.it",
+     "IT": "ecs.amazon.it",
      "JP": "ecs.amazonaws.jp",
      "UK": "ecs.amazonaws.co.uk",
      "US": "ecs.amazonaws.com",
+     // "CA": "ecs.amazonaws.ca",
+     // "CN": "webservices.amazon.cn",
+     // "DE": "ecs.amazonaws.de",
+     // "ES": "webservices.amazon.es",
+     // "FR": "ecs.amazonaws.fr",
+     // "IT": "webservices.amazon.it",
+     // "JP": "ecs.amazonaws.jp",
+     // "UK": "webservices.amazon.co.uk",
+     // "US": "ecs.amazonaws.com",
 }
 
 type AmazonRequest struct {
-	accessKeyID string;
-	accessKeySecret string;
+	accessKeyID string
+	accessKeySecret string
 	associateTag string
-	region string;
+	region string
+    client *http.Client
 }
 
 // Create a new AmazonRequest initialized with the given parameters
-func NewRequest(accessKeyID string, accessKeySecret string, associateTag string, region string) *AmazonRequest {
-	return &AmazonRequest{accessKeyID, accessKeySecret, associateTag, region}
+func NewRequest(accessKeyID, accessKeySecret, associateTag, region string, client *http.Client) *AmazonRequest {
+	return &AmazonRequest{accessKeyID, accessKeySecret, associateTag, region, client}
 }
 
 // Perform an ItemLookup request.
@@ -49,76 +62,119 @@ func NewRequest(accessKeyID string, accessKeySecret string, associateTag string,
 // Usage:
 // ids := []string{"01289328","2837423"}
 // response,err := request.ItemLookup(ids, "Medium,Accessories", "ASIN")
-func (self AmazonRequest) ItemLookup(itemIds []string, responseGroups string, idType string) (ItemLookupResponse, error) {
-	now := time.Now()
-	arguments := make(map[string]string)
-	arguments["AWSAccessKeyId"] = self.accessKeyID
-	arguments["Version"] = "2011-08-01"
-	arguments["Timestamp"] = now.Format(time.RFC3339)
-	arguments["Operation"] = "ItemLookup"
-	arguments["Service"] = "AWSEcommerceService"
-	arguments["AssociateTag"] = self.associateTag 
-	arguments["ItemId"] = strings.Join(itemIds, ",")
-	arguments["ResponseGroup"] = responseGroups
-	arguments["IdType"] = idType
+func (self *AmazonRequest) Lookup(itemIds []string, responseGroups string, idType string) ([]byte, error) {
+
+	args := make(map[string]string)
+
+	args["Operation"] = "ItemLookup"
+	args["ItemId"] = strings.Join(itemIds, ",")
+	args["ResponseGroup"] = responseGroups
+	args["IdType"] = idType
+
+	// Do request
+	content, err := self.doRequest(self.buildURL(args))
+
+	if err != nil {
+		return nil, err
+	}
+
+	return content, nil
+}
+
+func (self *AmazonRequest) Search(q, index, responseGroups, sort string) ([]byte, error) {
+
+	args := make(map[string]string)
+
+	args["Operation"] = "ItemSearch"
+	args["SearchIndex"] = index
+	args["Keywords"] = q
+	args["ResponseGroup"] = responseGroups
+	args["Sort"] = sort
+
+	content, err := self.doRequest(self.buildURL(args))
+
+	if err != nil {
+		return nil, err
+	}
+
+	return content, nil
+}
+
+func (self *AmazonRequest)buildURL(args map[string]string) string {
+    
+    now := time.Now().UTC()
+	args["AWSAccessKeyId"] = self.accessKeyID
+	args["Service"] = "AWSEcommerceService"
+	args["AssociateTag"] = self.associateTag
+	args["Version"] = "2011-08-01"
+    // args["Validate"] = "True"
+    // args["SignatureVersion"] = "2"
+	// args["SignatureMethod"] = "HmacSHA256"
+
+	args["Timestamp"] = now.Format("2006-01-02T15:04:05Z")
+    log.Println(args["Timestamp"])
+    //time.RFC3339)
 
 	// Sort the keys otherwise Amazon hash will be
 	// different from mine and the request will fail
-	keys := make([]string, 0, len(arguments))
-	for argument := range arguments {
-		keys = append(keys, argument)
+	keys := make([]string, 0, len(args))
+
+	for a := range args {
+		keys = append(keys, a)
 	}
+
 	sort.Strings(keys)
 
 	// There's probably a more efficient way to concatenate strings, not a big deal though.
-	var queryString string
-	for _, key := range keys {
-		escapedArg := url.QueryEscape(arguments[key])
-		queryString += fmt.Sprintf("%s=%s", key, escapedArg)
+    var qs bytes.Buffer
+    
+    kl := len(keys) - 1
+	for idx, key := range keys {
+		escaped := url.QueryEscape(args[key])
 
-		// Add '&' but only if it's not the the last argument
-		if key != keys[len(keys)-1] {
-			queryString += "&"
-		}
+		qs.WriteString(key)
+        qs.WriteString("=")
+        qs.WriteString(escaped)
+
+        if idx < kl {
+            qs.WriteString("&")
+        }
 	}
 
 	// Hash & Sign
-	var err error
 	domain := service_domains[self.region]
 
-	data := "GET\n" + domain + "\n/onca/xml\n" + queryString
+	payload := "GET\n" + domain + "\n/onca/xml\n" + qs.String()
 	hash := hmac.New(sha256.New, []byte(self.accessKeySecret))
-	hash.Write([]byte(data))
-	signature := url.QueryEscape(base64.StdEncoding.EncodeToString(hash.Sum(nil)))
-	queryString = fmt.Sprintf("%s&Signature=%s", queryString, signature)
+	hash.Write([]byte(payload))
 
-	// Do request
-	requestURL := fmt.Sprintf("http://%s/onca/xml?%s", domain, queryString)
-	content, err := doRequest(requestURL)
+    // sig := make([]byte, b64.EncodedLen(hash.Size()))
+    // b64.Encode(sig, hash.Sum(nil))
+    sig := b64.EncodeToString(hash.Sum(nil))
 
-	if err != nil {
-		return ItemLookupResponse{}, err
-	}
+	qs.WriteString("&Signature=")
+    qs.WriteString(sig)
 
-	return unmarshal(content)
+    ret := fmt.Sprintf("http://%s/onca/xml?%s", domain, qs.String())
+    return ret
 }
 
 // TODO add "Accept-Encoding": "gzip" and override UserAgent
 // which is set to Go http package.
-func doRequest(requestURL string) ([]byte, error) {
-	var httpResponse *http.Response
-	var err error
-	var contents []byte
+func (self *AmazonRequest)doRequest(requestURL string) ([]byte, error) {
 
-	httpResponse, err = http.Get(requestURL)
+    resp, err := self.client.Get(requestURL)
 
 	if err != nil {
-		return []byte(""), err
+		return nil, err
 	}
 
-	contents, err = ioutil.ReadAll(httpResponse.Body)
-	httpResponse.Body.Close()
+    contents, err := ioutil.ReadAll(resp.Body)
+	resp.Body.Close()
+
+	if err != nil {
+		return nil, err
+	}
 
 	return contents, err
 }
-
