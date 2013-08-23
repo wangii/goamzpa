@@ -13,13 +13,13 @@ import (
 	"time"
 	"io/ioutil"
 	"strings"
-	"net/url"
+	// "net/url"
 	"net/http"
 	"encoding/base64"
 	"crypto/hmac"
 	"crypto/sha256"
     "bytes"
-    "log"
+    // "log"
 )
 
 var b64 = base64.StdEncoding
@@ -112,7 +112,7 @@ func (self *AmazonRequest)buildURL(args map[string]string) string {
 	// args["SignatureMethod"] = "HmacSHA256"
 
 	args["Timestamp"] = now.Format("2006-01-02T15:04:05Z")
-    log.Println(args["Timestamp"])
+    // log.Println(args["Timestamp"])
     //time.RFC3339)
 
 	// Sort the keys otherwise Amazon hash will be
@@ -130,9 +130,9 @@ func (self *AmazonRequest)buildURL(args map[string]string) string {
     
     kl := len(keys) - 1
 	for idx, key := range keys {
-		escaped := url.QueryEscape(args[key])
+		escaped := Encode(args[key])
 
-		qs.WriteString(key)
+		qs.WriteString(Encode(key))
         qs.WriteString("=")
         qs.WriteString(escaped)
 
@@ -177,4 +177,52 @@ func (self *AmazonRequest)doRequest(requestURL string) ([]byte, error) {
 	}
 
 	return contents, err
+}
+
+var unreserved = make([]bool, 128)
+var hex = "0123456789ABCDEF"
+
+func init() {
+	// RFC3986
+	u := "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz01234567890-_.~"
+	for _, c := range u {
+		unreserved[c] = true
+	}
+}
+
+// Encode takes a string and URI-encodes it in a way suitable
+// to be used in AWS signatures.
+func Encode(s string) string {
+    encode := false
+    for i := 0; i != len(s); i++ {
+        c := s[i]
+        if c > 127 || !unreserved[c] {
+            encode = true
+            break
+
+        }
+
+    }
+    if !encode {
+        return s
+
+    }
+    e := make([]byte, len(s)*3)
+    ei := 0
+    for i := 0; i != len(s); i++ {
+        c := s[i]
+        if c > 127 || !unreserved[c] {
+            e[ei] = '%'
+            e[ei+1] = hex[c>>4]
+            e[ei+2] = hex[c&0xF]
+            ei += 3
+
+        } else {
+            e[ei] = c
+            ei += 1
+
+        }
+    }
+
+    return string(e[:ei])
 }
