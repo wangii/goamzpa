@@ -33,15 +33,6 @@ var service_domains = map[string] string {
      "JP": "ecs.amazonaws.jp",
      "UK": "ecs.amazonaws.co.uk",
      "US": "ecs.amazonaws.com",
-     // "CA": "ecs.amazonaws.ca",
-     // "CN": "webservices.amazon.cn",
-     // "DE": "ecs.amazonaws.de",
-     // "ES": "webservices.amazon.es",
-     // "FR": "ecs.amazonaws.fr",
-     // "IT": "webservices.amazon.it",
-     // "JP": "ecs.amazonaws.jp",
-     // "UK": "webservices.amazon.co.uk",
-     // "US": "ecs.amazonaws.com",
 }
 
 type AmazonRequest struct {
@@ -72,7 +63,7 @@ func (self *AmazonRequest) Lookup(itemIds []string, responseGroups string, idTyp
 	args["IdType"] = idType
 
 	// Do request
-	content, err := self.doRequest(self.buildURL(args))
+	content, err := self.doRequest(self.buildRequest(args))
 
 	if err != nil {
 		return nil, err
@@ -100,7 +91,7 @@ func (self *AmazonRequest) Search(q, index, responseGroups, sort string, extra m
         }
     }
 
-	content, err := self.doRequest(self.buildURL(args))
+	content, err := self.doRequest(self.buildRequest(args))
 
 	if err != nil {
 		return nil, err
@@ -109,20 +100,16 @@ func (self *AmazonRequest) Search(q, index, responseGroups, sort string, extra m
 	return content, nil
 }
 
-func (self *AmazonRequest)buildURL(args map[string]string) string {
-    
-    now := time.Now().UTC()
+func (self *AmazonRequest)buildRequest(args map[string]string) string {
+
 	args["AWSAccessKeyId"] = self.accessKeyID
 	args["Service"] = "AWSEcommerceService"
 	args["AssociateTag"] = self.associateTag
 	args["Version"] = "2011-08-01"
-    // args["Validate"] = "True"
     // args["SignatureVersion"] = "2"
 	// args["SignatureMethod"] = "HmacSHA256"
 
-	args["Timestamp"] = now.Format("2006-01-02T15:04:05Z")
-    // log.Println(args["Timestamp"])
-    //time.RFC3339)
+	args["Timestamp"] = time.Now().UTC().Format("2006-01-02T15:04:05Z")
 
 	// Sort the keys otherwise Amazon hash will be
 	// different from mine and the request will fail
@@ -133,10 +120,8 @@ func (self *AmazonRequest)buildURL(args map[string]string) string {
 	}
 
 	sort.Strings(keys)
-
-	// There's probably a more efficient way to concatenate strings, not a big deal though.
     var qs bytes.Buffer
-    
+
     kl := len(keys) - 1
 	for idx, key := range keys {
 		escaped := Encode(args[key])
