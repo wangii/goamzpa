@@ -81,15 +81,24 @@ func (self *AmazonRequest) Lookup(itemIds []string, responseGroups string, idTyp
 	return content, nil
 }
 
-func (self *AmazonRequest) Search(q, index, responseGroups, sort string) ([]byte, error) {
+func (self *AmazonRequest) Search(q, index, responseGroups, sort string, extra map[string]string) ([]byte, error) {
 
 	args := make(map[string]string)
 
 	args["Operation"] = "ItemSearch"
 	args["SearchIndex"] = index
-	args["Keywords"] = q
+
+    if len(q) > 0 {
+        args["Keywords"] = q
+    }
+
 	args["ResponseGroup"] = responseGroups
 	args["Sort"] = sort
+    if extra!= nil {
+        for k,v := range extra {
+            args[k] = v
+        }
+    }
 
 	content, err := self.doRequest(self.buildURL(args))
 
