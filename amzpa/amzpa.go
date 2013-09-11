@@ -147,7 +147,7 @@ func (self *AmazonRequest)buildRequest(args map[string]string) string {
     sig := b64.EncodeToString(hash.Sum(nil))
 
 	qs.WriteString("&Signature=")
-    qs.WriteString(sig)
+    qs.WriteString(Encode(sig))
 
     ret := fmt.Sprintf("http://%s/onca/xml?%s", domain, qs.String())
     return ret
